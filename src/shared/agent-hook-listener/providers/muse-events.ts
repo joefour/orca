@@ -47,6 +47,7 @@ function isChildSessionEvent(pane: MusePaneState, hookPayload: Record<string, un
 }
 
 // Reminders use role names (skill-reminder); spawned and workflow agents use UUIDs.
+const MAX_BACKGROUND_HOLD_MS = 5 * 60 * 1000
 const BACKGROUND_SUBAGENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function readChildSessionId(hookPayload: Record<string, unknown>): string | undefined {
@@ -200,6 +201,12 @@ export function normalizeMuseEvent(
   const interrupted =
     eventName === 'Stop' && hookPayload['is_interrupt'] === true ? true : undefined
   const sessionBoundary = eventName === 'SessionEnd'
+  if (pane.heldSince !== undefined && Date.now() - pane.heldSince >= MAX_BACKGROUND_HOLD_MS) {
+    pane.runningChildSessionIds.clear()
+    if (pane.log) {
+      restartMuseBackgroundWork(pane.log)
+    }
+  }
   // Why: lead verdicts never retire background subagents or workflows; only their own end does.
   const resolution = foldAgentLeadStatus({
     leadState: stateName,
@@ -222,6 +229,7 @@ export function normalizeMuseEvent(
   )
   pane.mainAgent = mainAgent
   pane.heldOpen = resolution.stateName !== stateName
+  pane.heldSince = pane.heldOpen ? (pane.heldSince ?? Date.now()) : undefined
 
   return normalizeAgentStatusPayload({
     state: resolution.stateName,

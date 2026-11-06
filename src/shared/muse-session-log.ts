@@ -194,7 +194,7 @@ function advanceMuseSessionLog(log: MuseSessionLogState, sessionsDir?: string): 
       applyBackgroundWorkRecord(log, entry)
     }
   }
-  return log.cursor.filePath !== undefined
+  return lines !== undefined
 }
 
 /** Records the run a `workflow` tool result launched, before the log may have flushed it. */
@@ -223,6 +223,7 @@ export function readMuseBackgroundWork(
 ): MuseBackgroundWork {
   // Why: settlement exists only in the log, so work it cannot see must not hold the pane open.
   if (!advanceMuseSessionLog(log, sessionsDir)) {
+    restartMuseBackgroundWork(log)
     return { runningWorkflows: 0, newerRunActive: false }
   }
   let runningWorkflows = 0

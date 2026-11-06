@@ -108,6 +108,7 @@ export type MusePaneState = {
   mainAgent?: AgentMainAgentStatus
   /** The last published row was a finished turn held open by background work. */
   heldOpen?: boolean
+  heldSince?: number
   log?: MuseSessionLogState
   /** Muse emits PermissionRequest for auto-approved calls too; only Notification confirms a visible prompt. */
   pendingApproval?: { toolName?: string; toolInput?: unknown }

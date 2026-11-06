@@ -118,6 +118,32 @@ describe('AgentHookServer Muse session log polling', () => {
     }
   })
 
+  it('releases a workflow hold if its session log disappears', async () => {
+    const dataHome = mkdtempSync(join(tmpdir(), 'agent-hook-muse-missing-log-'))
+    dirs.push(dataHome)
+    vi.stubEnv('XDG_DATA_HOME', dataHome)
+    const logPath = createSessionLog(dataHome)
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      await postMuseHook(server, { hook_event_name: 'UserPromptSubmit', prompt: 'run workflow' })
+      await postMuseHook(server, {
+        hook_event_name: 'PostToolUse',
+        tool_name: 'workflow',
+        tool_response: JSON.stringify({ status: 'launched', taskId: WORKFLOW_TASK_ID })
+      })
+      await postMuseHook(server, { hook_event_name: 'Stop' })
+      expect(server.getStatusSnapshot()[0]?.state).toBe('working')
+      rmSync(logPath)
+      await vi.waitFor(() => expect(server.getStatusSnapshot()[0]?.state).toBe('done'), {
+        timeout: 8_000,
+        interval: 50
+      })
+    } finally {
+      server.stop()
+    }
+  })
+
   afterEach(() => {
     vi.unstubAllEnvs()
     for (const dir of dirs) {
