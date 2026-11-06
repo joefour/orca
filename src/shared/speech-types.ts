@@ -30,6 +30,8 @@ export type SpeechModelManifest = {
   streaming: boolean
   modelingUnit?: ModelingUnit
   recommended?: boolean
+  /** Codes the engine accepts (others crash or fail to load it); absent when it ignores the setting. */
+  dictationLanguages?: readonly string[]
 }
 
 export type SpeechModelStatus = 'not-downloaded' | 'downloading' | 'extracting' | 'ready' | 'error'
