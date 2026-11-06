@@ -7,17 +7,15 @@ import { fetchCursorRateLimits } from '../cursor-fetcher'
 import { readCursorAuthSession } from '../cursor-auth'
 import { fetchZcodeRateLimits } from '../zcode-usage-fetcher'
 import { fetchAntigravityRateLimits } from '../antigravity-usage-fetcher'
+import { antigravityUsageDisabledSnapshot } from '../antigravity-usage-snapshot'
 import { disabledUsageSnapshot } from '../disabled-usage-snapshot'
-import { fetchMuseRateLimits } from '../muse-usage-fetcher'
+import { prepareMuseUsageFetch } from './service-muse-usage-fetch'
 import { ZCODE_PLAN_SITE_BASE_URLS } from '../../../shared/zcode-plan-sites'
 import { fetchMiniMaxRateLimits } from '../minimax/minimax-fetcher'
 import { createHash } from 'node:crypto'
 import { fetchOpenCodeGoUsage } from '../opencode-go-usage-source-selection'
 import { RateLimitServiceFetchPolicy } from './service-fetch-policy'
-import {
-  settleSiblingProviderFetch,
-  type SettledProviderResult
-} from './service-sibling-provider-result'
+import type { SettledProviderResult } from './service-sibling-provider-result'
 import type {
   ClaudeRuntimeAuthPreparation,
   InternalRateLimitState,
@@ -168,7 +166,7 @@ export abstract class RateLimitServiceFullCyclePreparation extends RateLimitServ
       kimi: this.withFetchingStatus(previousState.kimi, 'kimi'),
       antigravity: antigravityFetchAllowed
         ? this.withFetchingStatus(previousState.antigravity, 'antigravity')
-        : (previousState.antigravity ?? disabledUsageSnapshot('antigravity')),
+        : (previousState.antigravity ?? antigravityUsageDisabledSnapshot()),
       muse: museFetchAllowed
         ? this.withFetchingStatus(previousState.muse, 'muse')
         : museBeforeFetch,
@@ -183,34 +181,45 @@ export abstract class RateLimitServiceFullCyclePreparation extends RateLimitServ
     })
 
     // Async Keychain/worker DB reads must not delay other providers.
-    const cursorResultPromise = settleSiblingProviderFetch(
-      readCursorAuthSession().then((authReadResult) => {
+    const cursorResultPromise = readCursorAuthSession()
+      .then((authReadResult) => {
         this.cursorAuthConfigured = authReadResult.status === 'ok'
         return fetchCursorRateLimits({ signal, authReadResult })
       })
-    )
+      .then(
+        (value) => ({ status: 'fulfilled', value }) as const,
+        (reason) => ({ status: 'rejected', reason }) as const
+      )
 
-    const zcodeResultPromise = settleSiblingProviderFetch(
+    const zcodeResultPromise = (
       zcodePlanConfigResult.error
         ? Promise.resolve(this.getZcodePlanCredentialError(zcodePlanConfigResult.error))
         : fetchZcodeRateLimits({ signal, planCredential: zcodePlanCredential })
+    ).then(
+      (value) => ({ status: 'fulfilled', value }) as const,
+      (reason) => ({ status: 'rejected', reason }) as const
     )
 
     // Hidden meters avoid the CLI spawn; the separate promise keeps other providers responsive.
-    const antigravityResultPromise = settleSiblingProviderFetch(
+    const antigravityResultPromise = (
       antigravityFetchAllowed
         ? fetchAntigravityRateLimits({ signal })
-        : Promise.resolve(previousState.antigravity ?? disabledUsageSnapshot('antigravity'))
+        : Promise.resolve(previousState.antigravity ?? antigravityUsageDisabledSnapshot())
+    ).then(
+      (value) => ({ status: 'fulfilled', value }) as const,
+      (reason) => ({ status: 'rejected', reason }) as const
     )
 
-    const museResultPromise = settleSiblingProviderFetch(
-      museFetchAllowed ? fetchMuseRateLimits({ signal }) : Promise.resolve(museBeforeFetch)
-    )
+    const museResultPromise = prepareMuseUsageFetch(signal, museFetchAllowed, museBeforeFetch)
 
     const missingWslCodexHome =
       codexFetchGated || codexHomePath ? null : this.getMissingWslCodexHomeResult(codexTarget)
-    const grokResultPromise = settleSiblingProviderFetch(
-      fetchGrokRateLimits({ signal, authReadResult: grokAuthReadResult })
+    const grokResultPromise = fetchGrokRateLimits({
+      signal,
+      authReadResult: grokAuthReadResult
+    }).then(
+      (value) => ({ status: 'fulfilled', value }) as const,
+      (reason) => ({ status: 'rejected', reason }) as const
     )
 
     // Live display does not waive automated Retry-After gates.
